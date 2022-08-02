@@ -44,7 +44,5 @@ theme_set(theme_minimal())
 
 
 ```{r}
-billboard <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-14/billboard.csv")
-
 audio_features <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-14/audio_features.csv")
 ```
