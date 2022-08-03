@@ -42,7 +42,220 @@ pacman::p_load(
 theme_set(theme_minimal())
 ```
 
-
 ```{r}
 audio_features <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-14/audio_features.csv")
 ```
+
+```{r}
+glimpse(audio_features)
+```
+
+```{r}
+audio_features
+```
+
+```{r}
+summary(audio_features)
+```
+
+```{r}
+audio_features %>% # and then
+  count(song_id, sort = TRUE, name = "count") %>% 
+  count(count)
+```
+
+```{r}
+audio_features %>% 
+  add_count(song_id, sort = T) %>% 
+  filter(n == 2)
+```
+## Duplicates
+
+```{r}
+audio_features <- 
+  audio_features %>% 
+  group_by(song_id) %>%
+  filter(danceability == max(danceability, na.rm = T)) %>% 
+  ungroup()
+```
+
+## Missingness
+
+```{r}
+audio_features %>% 
+  rowwise() %>% 
+  mutate(NA_in_row = sum(is.na(cur_data()))) %>% 
+  ungroup() %>% 
+  filter(NA_in_row == 1)
+```
+
+## Distributions
+
+```{r}
+audio_features %>% 
+  ggplot(aes(x = danceability)) +
+  geom_histogram()
+```
+
+```{r}
+generate_histograms <- function(df,
+                                bins = 100,
+                                boundary = 0) {
+  
+  names_doubles <- 
+    df %>% 
+    select(where(is.double)) %>% 
+    names() %>% 
+    set_names()
+  
+  names_doubles %>% 
+    map(~ {ggplot(data = df,
+                  aes(x = .data[[.x]])) +
+        geom_histogram(bins = bins,
+                       boundary = boundary) +
+        labs(title = .x)
+      
+      })
+  
+}
+```
+
+```{r}
+generate_histograms(audio_features)
+```
+
+```{r}
+audio_features_selected <- 
+  audio_features %>% 
+  select(song_id, song, performer,
+         danceability, energy, loudness, speechiness, acousticness,
+         liveness, valence, tempo)
+```
+
+```{r}
+summary(audio_features_selected)
+```
+
+```{r}
+audio_features_scaled <- 
+  audio_features_selected %>% 
+  mutate(across(where(is.numeric), ~scale(.)))
+```
+
+```{r}
+generate_histograms(audio_features_scaled)
+```
+
+# K-means
+
+```{r}
+set.seed(82)
+```
+
+```{r}
+k_range <- 2:9
+
+kclusts <-
+  tibble(k = k_range) %>% 
+  mutate(kclust = map(k, ~kmeans(audio_features_scaled %>% 
+                                   select(where(is.numeric)), .x)),
+         tidied = map(kclust, tidy),
+         glanced = map(kclust, glance),
+         augmented = map(kclust, augment, audio_features_scaled))
+```
+
+```{r}
+clusters <-
+  kclusts %>% 
+  unnest(col = c(tidied))
+
+assignments <-
+  kclusts %>% 
+  unnest(cols = c(augmented)) 
+
+clusterings <-
+  kclusts %>% 
+  unnest(cols = c(glanced))
+```
+
+## Elbow Method
+
+```{r}
+ggplot(clusterings,
+       aes(x = k,
+           y = tot.withinss)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = k_range)
+```
+
+```{r}
+assignments %>% 
+  filter(k == 9) %>% 
+  count(.cluster) %>% 
+  ggplot(aes(x = n,
+             y = .cluster)) +
+  geom_col()
+```
+
+```{r}
+centroids_long <-
+  assignments %>% 
+  filter(k == 9) %>% 
+  pivot_longer(where(is.double)) %>% 
+  group_by(k, .cluster, name) %>% 
+  summarize(value = mean(value)) %>% 
+  ungroup()
+
+centroids <-
+  centroids_long %>% 
+  pivot_wider(names_from = name,
+              values_from = value)
+```
+
+```{r}
+centroids_long %>% 
+  ggplot(aes(x = name,
+             y = value)) +
+  geom_col() +
+  facet_grid(.cluster ~ name)
+```
+
+```{r}
+centroids_long %>% 
+  mutate(polarity = value > 0,
+         text_position = if_else(polarity, value + 0.75, value - 0.75)) %>% 
+  ggplot(aes(x = name,
+             y = value,
+             fill = polarity)) +
+  geom_hline(yintercept = 0,
+             linetype = 5,
+             color = "dark gray") +
+  geom_col(width = 0.5) +
+  geom_text(aes(y = text_position,
+                label = round(value, 2)),
+            color = "black",
+            size = 3) +
+  scale_y_continuous(position = "right") +
+  scale_fill_manual(values = c("red", "navy")) +
+  coord_cartesian(ylim = c(-3, 3),
+                  clip = "off") +
+  facet_grid(.cluster ~ name, scales = "free_x", switch = "y") +
+  labs(x = "",
+       y = "",
+       title = "Centroids by cluster",
+       subtitle = "Mean standard deviaton of features by cluster") +
+  theme(legend.position = "none",
+        strip.background = element_rect(fill = "dark gray",
+                                        color = NULL,
+                                        size = 0),
+        strip.text = element_text(color = "white",
+                                  face = "bold"),
+        strip.text.y.left = element_text(angle = 0),
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_blank(),
+        panel.background = element_rect(fill = "#f8f8f8",
+                                        color = NULL,
+                                        size = 0))
+```
+
